@@ -306,23 +306,17 @@ cd ScoreBox
 npm install
 ```
 
----
-
-## Start the Development Server
+## Run the Development Server
 
 ```bash
 npm run dev
 ```
 
-Open
+Open the application in your browser:
 
-```
+```text
 http://localhost:3000
 ```
-
-in your browser.
-
----
 
 # Deployment
 
