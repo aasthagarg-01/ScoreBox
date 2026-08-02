@@ -82,7 +82,9 @@ export default function Dashboard() {
                 className="border border-[#1C242E] bg-[#151B23] rounded-xl p-5 hover:border-[#00D9A3]/40 transition-colors"
               >
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold text-lg">{s.teams?.name}</h3>
+                  <a href={`/team/${s.teams?.external_id}`} className="font-semibold text-lg hover:text-[#00D9A3] transition-colors">
+  {s.teams?.name}
+</a>
                   <span className="text-xs text-[#8A97A6] uppercase tracking-wide">{s.teams?.league}</span>
                 </div>
                 {match ? (
