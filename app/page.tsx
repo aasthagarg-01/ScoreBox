@@ -1,60 +1,59 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/utils/supabase/client";
+
+const SPORTS = ["All Sports", "Soccer", "Basketball", "Cricket", "American Football", "Ice Hockey"];
 
 export default function Home() {
   const [query, setQuery] = useState("");
+  const [sport, setSport] = useState("All Sports");
+  const [suggestions, setSuggestions] = useState<any[]>([]);
   const [results, setResults] = useState<any[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [message, setMessage] = useState("");
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
   const [user, setUser] = useState<any>(null);
-  const [savedTeams, setSavedTeams] = useState<any[]>([]);
-  const [matchData, setMatchData] = useState<Record<number, any>>({});
   const supabase = createClient();
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setUser(data.user);
-    });
+    supabase.auth.getUser().then(({ data }) => setUser(data.user));
   }, []);
 
   useEffect(() => {
-    if (user) fetchSavedTeams();
-  }, [user]);
-
-  async function fetchMatchData(teamId: number, externalId: string) {
-    const res = await fetch(`/api/team-matches?team_id=${teamId}&external_id=${externalId}`);
-    const json = await res.json();
-    setMatchData((prev) => ({ ...prev, [teamId]: json.data }));
-  }
-
-  async function fetchSavedTeams() {
-    const { data, error } = await supabase
-      .from("saved_teams")
-      .select("id, teams(id, name, league, badge_url, external_id)")
-      .eq("user_id", user.id);
-
-    if (!error && data) {
-      setSavedTeams(data);
-      data.forEach((s: any) => {
-        if (s.teams) fetchMatchData(s.teams.id, s.teams.external_id);
-      });
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (query.trim().length < 2) {
+      setSuggestions([]);
+      return;
     }
+    debounceRef.current = setTimeout(async () => {
+      const res = await fetch(`/api/search-team?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      setSuggestions(data.teams || []);
+      setShowSuggestions(true);
+    }, 350);
+  }, [query]);
+
+  function filteredBySport(teams: any[]) {
+    if (sport === "All Sports") return teams;
+    return teams.filter((t) => t.strSport === sport);
   }
 
-  async function handleSearch() {
+  async function handleSearch(customQuery?: string) {
+    const q = customQuery ?? query;
     setMessage("");
-    const res = await fetch(`/api/search-team?q=${encodeURIComponent(query)}`);
+    setShowSuggestions(false);
+    const res = await fetch(`/api/search-team?q=${encodeURIComponent(q)}`);
     const data = await res.json();
-    setResults(data.teams || []);
+    setResults(filteredBySport(data.teams || []));
   }
 
   async function handleSave(team: any) {
     if (!user) {
-      setMessage("Please log in to save teams.");
+      setShowLoginPrompt(true);
       return;
     }
 
-    // 1. Upsert team into teams table
     const { data: existingTeam } = await supabase
       .from("teams")
       .select("id")
@@ -82,64 +81,113 @@ export default function Home() {
       teamId = newTeam.id;
     }
 
-    // 2. Insert into saved_teams
     const { error: saveError } = await supabase
       .from("saved_teams")
       .insert({ user_id: user.id, team_id: teamId });
 
-    setMessage(saveError ? saveError.message : `${team.strTeam} saved!`);
-    fetchSavedTeams();
+    setMessage(saveError ? saveError.message : `${team.strTeam} saved to your dashboard`);
   }
 
   return (
-    <main style={{ padding: 40, fontFamily: "sans-serif", maxWidth: 500 }}>
-      <h1>Search Teams</h1>
-      {!user && <p><a href="/login">Log in</a> to save teams.</p>}
-      <input
-        placeholder="Search a team..."
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        style={{ padding: 8, width: "70%" }}
-      />
-      <button onClick={handleSearch} style={{ padding: "8px 16px", marginLeft: 10 }}>
-        Search
-      </button>
+    <div className="relative">
+      {/* Background: gradient + subtle sport silhouettes */}
+      <div className="fixed inset-0 -z-10 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0B0F14] via-[#0F1620] to-[#0B0F14]" />
+        <svg className="absolute -top-10 -right-20 w-[500px] h-[500px] opacity-[0.06]" viewBox="0 0 200 200" fill="none">
+          <circle cx="100" cy="100" r="80" stroke="#00D9A3" strokeWidth="1" />
+          <path d="M20 100h160M100 20v160" stroke="#00D9A3" strokeWidth="1" />
+        </svg>
+        <svg className="absolute bottom-0 -left-24 w-[400px] h-[400px] opacity-[0.05]" viewBox="0 0 200 200" fill="none">
+          <rect x="20" y="20" width="160" height="160" rx="8" stroke="#FFB020" strokeWidth="1" />
+          <circle cx="100" cy="100" r="30" stroke="#FFB020" strokeWidth="1" />
+        </svg>
+      </div>
 
-      {results.map((team) => (
-        <div key={team.idTeam} style={{ marginTop: 20, borderBottom: "1px solid #333", paddingBottom: 10 }}>
-          <p><strong>{team.strTeam}</strong> — {team.strLeague}</p>
-          <button onClick={() => handleSave(team)} style={{ padding: "6px 12px" }}>
-            Save Team
+      <div className="max-w-3xl mx-auto px-6 pt-20 pb-16 text-center font-[family-name:var(--font-body)]">
+        <h1 className="font-[family-name:var(--font-display)] text-5xl font-bold mb-3">
+          Score<span className="text-[#00D9A3]">Box</span>
+        </h1>
+        <p className="text-[#8A97A6] mb-10">
+          Follow football, cricket, basketball, and more — one clean scoreboard for your teams.
+        </p>
+
+        {/* Sport filter + search */}
+        <div className="flex flex-col sm:flex-row gap-3 justify-center relative">
+          <select
+            value={sport}
+            onChange={(e) => setSport(e.target.value)}
+            className="bg-[#151B23] border border-[#1C242E] rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-[#00D9A3]"
+          >
+            {SPORTS.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+
+          <div className="relative flex-1 max-w-md">
+            <input
+              placeholder="Search a team..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onFocus={() => query.length >= 2 && setShowSuggestions(true)}
+              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+              className="w-full bg-[#151B23] border border-[#1C242E] rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-[#00D9A3]"
+            />
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="absolute top-full mt-1 w-full bg-[#151B23] border border-[#1C242E] rounded-lg overflow-hidden text-left z-10">
+                {filteredBySport(suggestions).slice(0, 6).map((team) => (
+                  <button
+                    key={team.idTeam}
+                    onClick={() => {
+                      setQuery(team.strTeam);
+                      handleSearch(team.strTeam);
+                    }}
+                    className="w-full px-4 py-2.5 text-sm hover:bg-[#1C242E] flex justify-between items-center"
+                  >
+                    <span>{team.strTeam}</span>
+                    <span className="text-xs text-[#8A97A6]">{team.strLeague}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={() => handleSearch()}
+            className="px-6 py-3 rounded-lg bg-[#00D9A3] text-[#0B0F14] font-medium text-sm hover:bg-[#00c493] transition-colors"
+          >
+            Search
           </button>
         </div>
-      ))}
 
-      {message && <p style={{ marginTop: 15, color: "crimson" }}>{message}</p>}
+        {showLoginPrompt && (
+          <div className="mt-6 border border-[#FFB020]/30 bg-[#FFB020]/10 rounded-lg px-4 py-3 text-sm text-[#FFB020]">
+            You need to log in to save teams.{" "}
+            <a href="/login" className="underline font-medium">Log in / Sign up</a>
+          </div>
+        )}
+        {message && <p className="mt-6 text-sm text-[#00D9A3]">{message}</p>}
 
-      {user && savedTeams.length > 0 && (
-        <div style={{ marginTop: 40 }}>
-          <h2>Your Saved Teams</h2>
-          {savedTeams.map((s) => {
-            const match = matchData[s.teams?.id];
-            return (
-              <div key={s.id} style={{ marginBottom: 15 }}>
-                <p><strong>{s.teams?.name}</strong> — {s.teams?.league}</p>
-                {match ? (
-                  <p style={{ fontSize: 14, color: "#666" }}>
-                    {match.status === "last_played"
-                      ? `Last match vs ${match.opponent}: ${match.score_home} - ${match.score_away}`
-                      : match.status === "upcoming"
-                      ? `Next match vs ${match.opponent} on ${new Date(match.start_time).toLocaleDateString()}`
-                      : "No match data"}
-                  </p>
-                ) : (
-                  <p style={{ fontSize: 14, color: "#999" }}>Loading match info...</p>
-                )}
+        {/* Results */}
+        <div className="mt-10 grid gap-3 text-left">
+          {results.map((team) => (
+            <div
+              key={team.idTeam}
+              className="border border-[#1C242E] bg-[#151B23] rounded-xl px-5 py-4 flex justify-between items-center"
+            >
+              <div>
+                <p className="font-semibold">{team.strTeam}</p>
+                <p className="text-xs text-[#8A97A6]">{team.strLeague} · {team.strSport}</p>
               </div>
-            );
-          })}
+              <button
+                onClick={() => handleSave(team)}
+                className="px-4 py-2 rounded-md border border-[#1C242E] text-sm hover:border-[#00D9A3] transition-colors"
+              >
+                Save
+              </button>
+            </div>
+          ))}
         </div>
-      )}
-    </main>
+      </div>
+    </div>
   );
 }
