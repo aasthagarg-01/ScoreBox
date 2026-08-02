@@ -1,65 +1,145 @@
-import Image from "next/image";
+"use client";
+import { useState, useEffect } from "react";
+import { createClient } from "@/utils/supabase/client";
 
 export default function Home() {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<any[]>([]);
+  const [message, setMessage] = useState("");
+  const [user, setUser] = useState<any>(null);
+  const [savedTeams, setSavedTeams] = useState<any[]>([]);
+  const [matchData, setMatchData] = useState<Record<number, any>>({});
+  const supabase = createClient();
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setUser(data.user);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (user) fetchSavedTeams();
+  }, [user]);
+
+  async function fetchMatchData(teamId: number, externalId: string) {
+    const res = await fetch(`/api/team-matches?team_id=${teamId}&external_id=${externalId}`);
+    const json = await res.json();
+    setMatchData((prev) => ({ ...prev, [teamId]: json.data }));
+  }
+
+  async function fetchSavedTeams() {
+    const { data, error } = await supabase
+      .from("saved_teams")
+      .select("id, teams(id, name, league, badge_url, external_id)")
+      .eq("user_id", user.id);
+
+    if (!error && data) {
+      setSavedTeams(data);
+      data.forEach((s: any) => {
+        if (s.teams) fetchMatchData(s.teams.id, s.teams.external_id);
+      });
+    }
+  }
+
+  async function handleSearch() {
+    setMessage("");
+    const res = await fetch(`/api/search-team?q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    setResults(data.teams || []);
+  }
+
+  async function handleSave(team: any) {
+    if (!user) {
+      setMessage("Please log in to save teams.");
+      return;
+    }
+
+    // 1. Upsert team into teams table
+    const { data: existingTeam } = await supabase
+      .from("teams")
+      .select("id")
+      .eq("external_id", team.idTeam)
+      .single();
+
+    let teamId = existingTeam?.id;
+
+    if (!teamId) {
+      const { data: newTeam, error: insertError } = await supabase
+        .from("teams")
+        .insert({
+          external_id: team.idTeam,
+          name: team.strTeam,
+          league: team.strLeague,
+          badge_url: team.strTeamBadge,
+        })
+        .select("id")
+        .single();
+
+      if (insertError) {
+        setMessage(insertError.message);
+        return;
+      }
+      teamId = newTeam.id;
+    }
+
+    // 2. Insert into saved_teams
+    const { error: saveError } = await supabase
+      .from("saved_teams")
+      .insert({ user_id: user.id, team_id: teamId });
+
+    setMessage(saveError ? saveError.message : `${team.strTeam} saved!`);
+    fetchSavedTeams();
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main style={{ padding: 40, fontFamily: "sans-serif", maxWidth: 500 }}>
+      <h1>Search Teams</h1>
+      {!user && <p><a href="/login">Log in</a> to save teams.</p>}
+      <input
+        placeholder="Search a team..."
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        style={{ padding: 8, width: "70%" }}
+      />
+      <button onClick={handleSearch} style={{ padding: "8px 16px", marginLeft: 10 }}>
+        Search
+      </button>
+
+      {results.map((team) => (
+        <div key={team.idTeam} style={{ marginTop: 20, borderBottom: "1px solid #333", paddingBottom: 10 }}>
+          <p><strong>{team.strTeam}</strong> — {team.strLeague}</p>
+          <button onClick={() => handleSave(team)} style={{ padding: "6px 12px" }}>
+            Save Team
+          </button>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+      ))}
+
+      {message && <p style={{ marginTop: 15, color: "crimson" }}>{message}</p>}
+
+      {user && savedTeams.length > 0 && (
+        <div style={{ marginTop: 40 }}>
+          <h2>Your Saved Teams</h2>
+          {savedTeams.map((s) => {
+            const match = matchData[s.teams?.id];
+            return (
+              <div key={s.id} style={{ marginBottom: 15 }}>
+                <p><strong>{s.teams?.name}</strong> — {s.teams?.league}</p>
+                {match ? (
+                  <p style={{ fontSize: 14, color: "#666" }}>
+                    {match.status === "last_played"
+                      ? `Last match vs ${match.opponent}: ${match.score_home} - ${match.score_away}`
+                      : match.status === "upcoming"
+                      ? `Next match vs ${match.opponent} on ${new Date(match.start_time).toLocaleDateString()}`
+                      : "No match data"}
+                  </p>
+                ) : (
+                  <p style={{ fontSize: 14, color: "#999" }}>Loading match info...</p>
+                )}
+              </div>
+            );
+          })}
         </div>
-      </main>
-    </div>
+      )}
+    </main>
   );
 }
