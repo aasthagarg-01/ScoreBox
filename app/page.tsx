@@ -108,7 +108,7 @@ export default function Home() {
           Score<span className="text-[#00D9A3]">Box</span>
         </h1>
         <p className="text-[#8A97A6] mb-10">
-          Follow football, cricket, basketball, and more — one clean scoreboard for your teams.
+          Follow football, cricket, basketball, and more - one clean scoreboard for your teams.
         </p>
 
         {/* Sport filter + search */}
